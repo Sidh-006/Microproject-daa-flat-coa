@@ -1,71 +1,188 @@
-# regex2cpu
+<div align="center">
 
-A Python 3.10+ pipeline that takes a regular expression and compiles it all
-the way down to machine code running on a simulated CPU — touching three
-core Computer Science topics in one project.
+# ⚡ regex2cpu
+
+### *A complete pipeline from Regular Expression → CPU Simulation*
+
+[![Live Demo](https://img.shields.io/badge/🚀_Live_Demo-regex2cpu.onrender.com-7c3aed?style=for-the-badge)](https://regex2cpu.onrender.com/)
+[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
+[![Tests](https://img.shields.io/badge/Tests-90_passed-10b981?style=for-the-badge)](#running-tests)
+
+**regex2cpu** is an interactive micro-project that takes a regular expression and runs it through a complete theoretical computer science pipeline — converting it to an NFA, then a DFA, analyzing it with graph algorithms, compiling it to a custom 16-bit assembly language, and finally simulating it on a virtual CPU.
 
 ```
-regex  -->  NFA  -->  DFA  -->  graph analysis  -->  assembly  -->  CPU simulation
+Regex  ──►  NFA  ──►  DFA  ──►  BFS Analysis  ──►  Assembly  ──►  CPU Simulation
+ FLAT         FLAT      FLAT          DAA               COA               COA
+```
+
+</div>
+
+---
+
+## 🌐 Live Demo
+
+> **Try it now — no installation needed!**
+>
+> ### 👉 [https://regex2cpu.onrender.com/](https://regex2cpu.onrender.com/)
+
+---
+
+## 🎯 What It Does
+
+Enter any regular expression (using lowercase letters/digits) and a test string. The pipeline will:
+
+1. **Parse** the regex into postfix notation (Shunting-yard algorithm)
+2. **Build an NFA** using Thompson's construction with epsilon transitions
+3. **Convert to a minimal DFA** via subset construction + Hopcroft minimization
+4. **Analyze the DFA** as a directed graph using BFS to find unreachable states and the shortest accepted string
+5. **Compile the DFA** into 16-bit assembly for a custom ISA
+6. **Simulate the CPU** with a fetch-decode-execute cycle and tell you if the input is **ACCEPT** or **REJECT**
+
+---
+
+## 🖥️ How to Use the Web App
+
+### Step 1 — Open the Live App
+Go to **[https://regex2cpu.onrender.com/](https://regex2cpu.onrender.com/)**
+
+### Step 2 — Enter a Regular Expression
+Type your regex in the **"Regular Expression"** box.
+
+**Supported syntax:**
+
+| Syntax | Meaning | Example |
+|--------|---------|---------|
+| `a`–`z`, `0`–`9` | Literal character | `a`, `b`, `3` |
+| `\|` | Union — match either side | `a\|b` matches `a` or `b` |
+| `*` | Kleene star — zero or more | `a*` matches `""`, `a`, `aa`, ... |
+| `( )` | Grouping | `(ab)*` matches `""`, `ab`, `abab`, ... |
+| Adjacency | Implicit concatenation | `ab` means `a` then `b` |
+
+> ⚠️ **Not supported:** uppercase letters, `.` (dot), `+`, `?`, `^`, `$`
+
+### Step 3 — Enter a Test String
+Type the string you want to test against your regex in the **"Input String"** box.
+
+### Step 4 — Toggle Options
+
+| Toggle | What it shows |
+|--------|--------------|
+| 📋 **Show Assembly** | The generated 16-bit assembly listing + machine code hex words |
+| 🔄 **CPU Trace** | Every fetch-decode-execute cycle the CPU runs, step by step |
+| 🕸️ **DFA Graph (.dot)** | Graphviz source you can paste into [GraphvizOnline](https://dreampuf.github.io/GraphvizOnline/) to visualize the DFA |
+
+### Step 5 — Click ▶ Run Pipeline
+Results appear instantly in the right panel, organized into collapsible sections:
+- 🏁 **Final Result** — ACCEPT ✅ or REJECT ❌ with cycle count
+- 🤖 **Automata Summary** — NFA states, DFA states, alphabet
+- 🕸️ **Graph Analysis (BFS)** — unreachable states removed, shortest accepted string
+- 📋 **Generated Assembly** — syntax-highlighted ISA listing (if enabled)
+- 🔄 **CPU Execution Trace** — per-cycle register dump (if enabled)
+- 🕸️ **DFA Graph (.dot)** — copyable Graphviz source (if enabled)
+
+### ⌨️ Keyboard Shortcut
+Press **`Ctrl + Enter`** to run the pipeline without clicking the button.
+
+---
+
+## 🚀 Quick Examples
+
+Click any chip in the **Quick Examples** section of the web app, or try these manually:
+
+| Regex | Test String | Expected |
+|-------|------------|----------|
+| `(a\|b)*abb` | `babb` | ✅ ACCEPT |
+| `(a\|b)*abb` | `ab` | ❌ REJECT |
+| `a*b` | `aaab` | ✅ ACCEPT |
+| `a*b` | `aa` | ❌ REJECT |
+| `(ab)*` | `abab` | ✅ ACCEPT |
+| `a\|b\|c` | `c` | ✅ ACCEPT |
+| `ab*c` | `abbbc` | ✅ ACCEPT |
+
+---
+
+## 🏗️ Pipeline Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                          regex2cpu Pipeline                         │
+├──────────────────┬──────────────────────────────────────────────────┤
+│  regex_parser.py │  Inserts explicit concatenation operator '·'     │
+│  FLAT            │  Converts infix regex → postfix (Shunting-yard)  │
+├──────────────────┼──────────────────────────────────────────────────┤
+│  nfa.py          │  Thompson's construction: postfix → NFA          │
+│  FLAT            │  Supports literals, union |, concat ·, star *    │
+│                  │  Provides epsilon_closure() and move()           │
+├──────────────────┼──────────────────────────────────────────────────┤
+│  dfa.py          │  Subset (powerset) construction: NFA → DFA       │
+│  FLAT            │  Hopcroft minimization merges equivalent states  │
+│                  │  dfa.accepts(string) for pure-Python simulation  │
+├──────────────────┼──────────────────────────────────────────────────┤
+│  graph_tools.py  │  BFS reachability: prune unreachable states      │
+│  DAA             │  BFS shortest path: find shortest accepted str   │
+│                  │  Time complexity: O(V + E)                       │
+├──────────────────┼──────────────────────────────────────────────────┤
+│  compiler.py     │  DFA transition table → assembly source          │
+│  COA             │  One code block per DFA state                    │
+├──────────────────┼──────────────────────────────────────────────────┤
+│  isa.py          │  16-bit ISA definition, two-pass assembler       │
+│  COA             │  Assembler + disassembler with label resolution  │
+├──────────────────┼──────────────────────────────────────────────────┤
+│  cpu.py          │  Fetch → Decode → Execute simulator              │
+│  COA             │  Registers R0-R3, PC, IR, Zero flag              │
+└──────────────────┴──────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Quick Start
+## 📚 Module → Course Topic Mapping
+
+| Module | Course | Key Concept |
+|--------|--------|-------------|
+| `regex_parser.py` | **FLAT** — Formal Languages & Automata Theory | Shunting-yard algorithm, operator precedence |
+| `nfa.py` | **FLAT** — Formal Languages & Automata Theory | Thompson's construction, ε-closure, move() |
+| `dfa.py` | **FLAT** — Formal Languages & Automata Theory | Subset construction, Hopcroft minimization |
+| `graph_tools.py` | **DAA** — Design & Analysis of Algorithms | BFS on directed graphs, O(V+E) traversal |
+| `isa.py` | **COA** — Computer Organization & Architecture | 16-bit ISA encoding, two-pass assembler |
+| `compiler.py` | **COA** — Computer Organization & Architecture | Code generation, label resolution |
+| `cpu.py` | **COA** — Computer Organization & Architecture | Fetch-Decode-Execute cycle, register file |
+
+---
+
+## 🔧 Instruction Set Architecture (16-bit)
+
+Instruction format: `[15:12] opcode | [11:8] register | [7:0] operand`
+
+| Opcode | Mnemonic | Description |
+|--------|----------|-------------|
+| `0` | `LOAD Rx` | Read next input character (ASCII) into register Rx; loads 0 at end-of-input |
+| `1` | `CMP Rx, imm` | Compare Rx with immediate value; sets Zero flag if equal |
+| `2` | `JEQ addr` | Jump to address if Zero flag is set |
+| `3` | `JMP addr` | Unconditional jump to address |
+| `4` | `ACCEPT` | Halt — input string is **accepted** |
+| `5` | `REJECT` | Halt — input string is **rejected** |
+
+---
+
+## 💻 Run Locally (CLI)
+
+### Prerequisites
+- Python 3.10 or higher
+- No external dependencies (standard library only)
+
+### Install & Run
 
 ```bash
-# No dependencies beyond Python 3.10+
-cd regex2cpu
+# Clone the repository
+git clone https://github.com/Sidh-006/Microproject-daa-flat-coa.git
+cd Microproject-daa-flat-coa
 
 # Run the acceptance example
 python main.py "(a|b)*abb" "babb" --trace --show-asm
-
-# Run all tests
-python -m unittest discover tests
 ```
 
----
-
-## Pipeline Overview
-
-```
-regex_parser.py   Insert explicit concatenation, convert infix -> postfix
-      |
-      v
-nfa.py            Thompson's construction: postfix -> NFA with epsilon transitions
-      |
-      v
-dfa.py            Subset construction + Hopcroft minimization: NFA -> minimal DFA
-      |
-      v
-graph_tools.py    BFS: prune unreachable states, find shortest accepted string
-      |
-      v
-compiler.py       DFA -> assembly source (one block per state)
-      |
-      v
-isa.py            Two-pass assembler: assembly source -> 16-bit machine words
-      |
-      v
-cpu.py            Fetch-Decode-Execute simulator: runs machine code on input string
-```
-
----
-
-## Module-to-Course Mapping
-
-| Module | Course Topic | Key Algorithm / Concept |
-|--------|--------------|------------------------|
-| `regex_parser.py` | Formal Languages & Automata Theory (FLAT) | Shunting-yard algorithm, operator precedence |
-| `nfa.py` | Formal Languages & Automata Theory (FLAT) | Thompson's construction, epsilon-closure |
-| `dfa.py` | Formal Languages & Automata Theory (FLAT) | Subset (powerset) construction, Hopcroft minimization |
-| `graph_tools.py` | Design & Analysis of Algorithms (DAA) | BFS reachability, shortest-path BFS, O(V+E) |
-| `isa.py` | Computer Organization & Architecture (COA) | Instruction encoding/decoding, two-pass assembler |
-| `compiler.py` | Computer Organization & Architecture (COA) | Code generation, label resolution |
-| `cpu.py` | Computer Organization & Architecture (COA) | Fetch-Decode-Execute cycle, register file, flags |
-
----
-
-## CLI Usage
+### CLI Flags
 
 ```
 python main.py "<regex>" "<input_string>" [--trace] [--show-asm] [--dot]
@@ -73,139 +190,72 @@ python main.py "<regex>" "<input_string>" [--trace] [--show-asm] [--dot]
 
 | Flag | Description |
 |------|-------------|
-| `--trace` | Print one line per CPU cycle |
-| `--show-asm` | Print the generated assembly and machine words |
-| `--dot` | Write `DFA.dot` (Graphviz format, no install needed) |
+| `--trace` | Print one line per CPU cycle (fetch-decode-execute trace) |
+| `--show-asm` | Print generated assembly source + hex machine words |
+| `--dot` | Write `DFA.dot` Graphviz file (no graphviz install needed) |
 
----
+### Run the Web Server Locally
 
-## Example Output
-
-```
-python main.py "(a|b)*abb" "babb" --trace --show-asm
-```
-
-```
-============================================================
-1. AUTOMATA SUMMARY
-============================================================
-   Regex   : (a|b)*abb
-   Postfix : ab|*a.b.b.
-   NFA states : 14
-   DFA states : 4
-   Alphabet   : {a, b}
-
-============================================================
-2. GRAPH ANALYSIS (BFS)
-============================================================
-   No unreachable states detected.
-   Shortest accepted string : 'abb'
-
-============================================================
-3. GENERATED ASSEMBLY
-============================================================
-   ; --- DFA compiled from 4 states ---
-   JMP S0         ; enter DFA at start state
-   ; --- State S0  ---
-   S0:
-       LOAD R1            ; fetch next input char
-       CMP  R1, 0         ; end of input?
-       JEQ  S0_END        ; if yes -> accept/reject
-       CMP  R1, 'a'       ; is input 'a'?
-       JEQ  S1            ; yes -> go to S1
-       CMP  R1, 'b'       ; is input 'b'?
-       JEQ  S0            ; yes -> go to S0
-       JMP  REJECT_ALL    ; no transition -> reject
-   S0_END:
-       REJECT             ; S0 is not accepting
-   ...
-   S3_END:
-       ACCEPT             ; S3 is accepting
-   REJECT_ALL:
-       REJECT
-
-   Machine code (38 words):
-   [000] 0x3001
-   ...
-
-============================================================
-4. CPU EXECUTION
-============================================================
-   Input string : 'babb'
-
-cycle=0001 PC=001 IR=0x3001 JMP 1    | R0=0 R1=0  R2=0 R3=0 Z=0
-cycle=0002 PC=002 IR=0x0100 LOAD R1  | R0=0 R1=98 R2=0 R3=0 Z=0
-...
-cycle=0031 PC=037 IR=0x4000 ACCEPT   | R0=0 R1=0  R2=0 R3=0 Z=1
-
-============================================================
-5. FINAL RESULT
-============================================================
-   Result : ACCEPT
-   Cycles : 31
-============================================================
+```bash
+pip install flask gunicorn
+python app.py
+# Open http://localhost:5000
 ```
 
 ---
 
-## Instruction Set Architecture
-
-16-bit instruction format: `[15:12] opcode | [11:8] register | [7:0] operand`
-
-| Opcode | Mnemonic | Description |
-|--------|----------|-------------|
-| 0 | `LOAD Rx` | Read next input char (ASCII) into Rx; 0 at EOF |
-| 1 | `CMP Rx, imm` | Set Zero flag if Rx == imm |
-| 2 | `JEQ addr` | Jump to addr if Zero flag set |
-| 3 | `JMP addr` | Unconditional jump |
-| 4 | `ACCEPT` | Halt: input accepted |
-| 5 | `REJECT` | Halt: input rejected |
-
----
-
-## Supported Regex Syntax
-
-| Syntax | Meaning |
-|--------|---------|
-| `a`–`z`, `0`–`9` | Literal character |
-| `\|` | Union (alternation) |
-| `*` | Kleene star (zero or more) |
-| `( )` | Grouping |
-| `ab` | Implicit concatenation |
-
----
-
-## Running Tests
+## 🧪 Running Tests
 
 ```bash
 python -m unittest discover tests -v
 ```
 
-Expected: **90 tests, 0 failures**
+**Expected output: 90 tests, 0 failures**
 
-Tests cover:
-- `(a|b)*abb` — 13 strings, 4-state DFA check, shortest-string check
-- `a*b` — 11 strings
-- `(ab)*` — 11 strings
-- `a|b|c` — 11 strings
-- `ab*c` — 12 strings
-- Assembler/disassembler round-trip (6 tests)
-- Invalid regex `ValueError` (6 tests)
-- NFA and parser unit tests (10 tests)
-
-Each DFA test asserts that `dfa.accepts()` and the **CPU simulator** return identical results.
+Test coverage includes:
+- **5 regex patterns** × 10+ strings each — `dfa.accepts()` and CPU simulator must agree on every string
+- `(a|b)*abb` — exactly 4-state minimal DFA, shortest accepted string = `"abb"`
+- **Assembler/disassembler round-trip** — encode then decode must return original
+- **Invalid regex** — unbalanced parens, dangling operators raise `ValueError`
 
 ---
 
-## Design Decisions
+## 📁 Project Structure
 
-- **No explicit dead/trap state**: Missing transitions are treated as immediate
-  reject by both `dfa.accepts()` and the CPU (via `JMP REJECT_ALL`). This
-  keeps the DFA table minimal.
-- **Hopcroft minimization**: Run after subset construction so that equivalent
-  NFA states (e.g. the two `b→S0` states in `(a|b)*abb`) are merged into the
-  canonical minimal DFA.
-- **Partial alphabet in assembly**: Only symbols with actual transitions emit
-  `CMP/JEQ` pairs, keeping the generated code tight.
-- **Standard library only**: `graphviz` is optional and not required for any
-  functionality; `.dot` output is generated as plain text.
+```
+regex2cpu/
+├── regex_parser.py     # Regex → postfix (shunting-yard)
+├── nfa.py              # Thompson's construction + ε-closure
+├── dfa.py              # Subset construction + Hopcroft minimization
+├── graph_tools.py      # BFS reachability + shortest accepted string
+├── isa.py              # 16-bit ISA encode/decode + two-pass assembler
+├── compiler.py         # DFA → assembly → machine code
+├── cpu.py              # CPU simulator with fetch-decode-execute cycle
+├── main.py             # CLI entry point
+├── app.py              # Flask web API
+├── static/
+│   └── index.html      # Single-page web frontend
+├── tests/
+│   └── test_all.py     # 90 unittest test cases
+├── requirements.txt    # Flask + gunicorn
+├── Procfile            # Render/Heroku process definition
+├── render.yaml         # Render infrastructure-as-code config
+└── README.md           # This file
+```
+
+---
+
+## ✍️ Author
+
+**Sidhanth S** — S70  
+Micro Project covering DAA · FLAT · COA
+
+---
+
+<div align="center">
+
+**🚀 [Try the Live App](https://regex2cpu.onrender.com/) · [View Source](https://github.com/Sidh-006/Microproject-daa-flat-coa)**
+
+*Built with Python 3 · Standard library only · Deployed on Render*
+
+</div>
