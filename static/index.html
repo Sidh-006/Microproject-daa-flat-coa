@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>regex2cpu — Regex → NFA → DFA → Assembly → CPU</title>
+  <meta name="description" content="An interactive pipeline that converts a regular expression all the way to CPU simulation — covering FLAT, DAA, and COA concepts." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    /* ── Reset & tokens ─────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0a0f1e;
+      --bg2:       #0f172a;
+      --surface:   #1e293b;
+      --surface2:  #263348;
+      --border:    #334155;
+      --text:      #e2e8f0;
+      --text-muted:#94a3b8;
+      --accent:    #7c3aed;
+      --accent2:   #06b6d4;
+      --green:     #10b981;
+      --red:       #ef4444;
+      --yellow:    #f59e0b;
+      --radius:    12px;
+      --glow:      0 0 30px rgba(124,58,237,.25);
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Animated background grid ───────────────────────────────────────── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(124,58,237,.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(124,58,237,.04) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── Header ─────────────────────────────────────────────────────────── */
+    header {
+      position: relative;
+      z-index: 1;
+      text-align: center;
+      padding: 3.5rem 1rem 2rem;
+    }
+
+    .logo {
+      display: inline-flex;
+      align-items: center;
+      gap: .6rem;
+      font-size: 2.6rem;
+      font-weight: 700;
+      letter-spacing: -1px;
+      background: linear-gradient(135deg, #a78bfa 0%, #38bdf8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      animation: glow-pulse 3s ease-in-out infinite;
+    }
+
+    @keyframes glow-pulse {
+      0%, 100% { filter: drop-shadow(0 0 8px rgba(167,139,250,.4)); }
+      50%       { filter: drop-shadow(0 0 20px rgba(56,189,248,.6)); }
+    }
+
+    .logo-icon { font-size: 2.8rem; -webkit-text-fill-color: initial; }
+
+    .subtitle {
+      margin-top: .8rem;
+      color: var(--text-muted);
+      font-size: .95rem;
+      font-weight: 400;
+      letter-spacing: .5px;
+    }
+
+    /* Pipeline badge strip */
+    .pipeline-strip {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: .5rem;
+      margin-top: 1.4rem;
+    }
+
+    .badge {
+      padding: .25rem .75rem;
+      border-radius: 99px;
+      font-size: .75rem;
+      font-weight: 600;
+      letter-spacing: .3px;
+    }
+    .badge-flat  { background: rgba(124,58,237,.2);  color: #a78bfa; border: 1px solid rgba(124,58,237,.4); }
+    .badge-daa   { background: rgba(6,182,212,.2);   color: #67e8f9; border: 1px solid rgba(6,182,212,.4); }
+    .badge-coa   { background: rgba(16,185,129,.2);  color: #6ee7b7; border: 1px solid rgba(16,185,129,.4); }
+
+    /* ── Main layout ────────────────────────────────────────────────────── */
+    main {
+      position: relative;
+      z-index: 1;
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 0 1.5rem 4rem;
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      gap: 1.5rem;
+      align-items: start;
+    }
+
+    @media (max-width: 900px) {
+      main { grid-template-columns: 1fr; }
+    }
+
+    /* ── Card ───────────────────────────────────────────────────────────── */
+    .card {
+      background: rgba(30,41,59,.7);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      backdrop-filter: blur(12px);
+      overflow: hidden;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      font-weight: 600;
+      font-size: .9rem;
+      letter-spacing: .3px;
+    }
+
+    .card-body { padding: 1.25rem; }
+
+    /* ── Form controls ──────────────────────────────────────────────────── */
+    .field { margin-bottom: 1rem; }
+
+    label {
+      display: block;
+      font-size: .8rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      margin-bottom: .4rem;
+      text-transform: uppercase;
+      letter-spacing: .6px;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      padding: .65rem 1rem;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .95rem;
+      outline: none;
+      transition: border-color .2s, box-shadow .2s;
+    }
+
+    input[type="text"]:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(124,58,237,.15);
+    }
+
+    /* ── Toggle switches ────────────────────────────────────────────────── */
+    .toggles { display: flex; flex-direction: column; gap: .75rem; margin-bottom: 1.25rem; }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .toggle-label {
+      font-size: .85rem;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+    }
+
+    .toggle-label .icon { font-size: 1rem; }
+
+    .switch { position: relative; width: 42px; height: 24px; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+
+    .slider {
+      position: absolute;
+      inset: 0;
+      background: var(--surface2);
+      border-radius: 24px;
+      cursor: pointer;
+      transition: background .25s;
+      border: 1px solid var(--border);
+    }
+
+    .slider::before {
+      content: '';
+      position: absolute;
+      left: 3px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--text-muted);
+      transition: transform .25s, background .25s;
+    }
+
+    .switch input:checked + .slider { background: var(--accent); border-color: var(--accent); }
+    .switch input:checked + .slider::before {
+      transform: translate(18px, -50%);
+      background: #fff;
+    }
+
+    /* ── Run button ─────────────────────────────────────────────────────── */
+    #btn-run {
+      width: 100%;
+      padding: .85rem;
+      border: none;
+      border-radius: 8px;
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+      color: #fff;
+      font-family: 'Inter', sans-serif;
+      font-size: .95rem;
+      font-weight: 600;
+      cursor: pointer;
+      letter-spacing: .3px;
+      transition: opacity .2s, transform .15s, box-shadow .2s;
+      box-shadow: 0 4px 15px rgba(124,58,237,.35);
+    }
+
+    #btn-run:hover:not(:disabled)  { opacity: .9; box-shadow: 0 6px 20px rgba(124,58,237,.5); }
+    #btn-run:active:not(:disabled) { transform: scale(.98); }
+    #btn-run:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* Spinner inside button */
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      vertical-align: middle;
+      margin-right: .4rem;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Quick examples ─────────────────────────────────────────────────── */
+    .examples { margin-top: 1.25rem; }
+
+    .examples-title {
+      font-size: .75rem;
+      text-transform: uppercase;
+      letter-spacing: .6px;
+      color: var(--text-muted);
+      margin-bottom: .6rem;
+    }
+
+    .example-chips { display: flex; flex-wrap: wrap; gap: .4rem; }
+
+    .chip {
+      padding: .2rem .65rem;
+      border-radius: 6px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .78rem;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--accent2);
+      cursor: pointer;
+      transition: background .2s, border-color .2s;
+      white-space: nowrap;
+    }
+    .chip:hover { background: rgba(6,182,212,.1); border-color: var(--accent2); }
+
+    /* ── Output panel ───────────────────────────────────────────────────── */
+    #output-panel > * + * { margin-top: 1rem; }
+
+    /* ── Result badge ───────────────────────────────────────────────────── */
+    .result-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: .5rem;
+      padding: .45rem 1.1rem;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 1.1rem;
+      letter-spacing: .5px;
+    }
+
+    .result-accept { background: rgba(16,185,129,.15); color: var(--green); border: 1px solid rgba(16,185,129,.4); }
+    .result-reject { background: rgba(239,68,68,.15);  color: var(--red);   border: 1px solid rgba(239,68,68,.4); }
+
+    /* ── Stats grid ─────────────────────────────────────────────────────── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: .75rem;
+    }
+
+    .stat-box {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: .8rem 1rem;
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 1.6rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, #a78bfa, #38bdf8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      line-height: 1;
+      margin-bottom: .3rem;
+    }
+
+    .stat-label { font-size: .72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; }
+
+    /* ── Code block ─────────────────────────────────────────────────────── */
+    pre {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+      overflow-x: auto;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .8rem;
+      line-height: 1.7;
+      max-height: 420px;
+      overflow-y: auto;
+    }
+
+    /* Assembly syntax highlight */
+    .asm-comment { color: #64748b; }
+    .asm-label   { color: #f59e0b; font-weight: 600; }
+    .asm-op      { color: #7c3aed; font-weight: 500; }
+    .asm-reg     { color: #06b6d4; }
+    .asm-lit     { color: #10b981; }
+
+    /* Trace line */
+    .trace-accept { color: var(--green); font-weight: 600; }
+    .trace-reject { color: var(--red);   font-weight: 600; }
+
+    /* ── Error box ──────────────────────────────────────────────────────── */
+    .error-box {
+      background: rgba(239,68,68,.1);
+      border: 1px solid rgba(239,68,68,.35);
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      color: #fca5a5;
+      font-size: .875rem;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* ── Dot copy box ───────────────────────────────────────────────────── */
+    .dot-wrap { position: relative; }
+
+    .copy-btn {
+      position: absolute;
+      top: .5rem;
+      right: .5rem;
+      padding: .25rem .6rem;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-muted);
+      font-size: .72rem;
+      cursor: pointer;
+      transition: color .2s, border-color .2s;
+    }
+    .copy-btn:hover { color: var(--text); border-color: var(--accent2); }
+
+    /* ── Section toggle ─────────────────────────────────────────────────── */
+    .section-toggle {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .chevron {
+      display: inline-block;
+      transition: transform .2s;
+      font-size: .8rem;
+      color: var(--text-muted);
+    }
+    .collapsed .chevron { transform: rotate(-90deg); }
+
+    .section-body { overflow: hidden; }
+    .section-body.hidden { display: none; }
+
+    /* ── Placeholder ─────────────────────────────────────────────────────── */
+    #placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 300px;
+      gap: 1rem;
+      color: var(--text-muted);
+      font-size: .9rem;
+    }
+
+    .placeholder-icon { font-size: 3.5rem; opacity: .3; }
+
+    /* ── Footer ─────────────────────────────────────────────────────────── */
+    footer {
+      position: relative;
+      z-index: 1;
+      text-align: center;
+      padding: 2rem 1rem;
+      color: var(--text-muted);
+      font-size: .8rem;
+      border-top: 1px solid var(--border);
+    }
+
+    footer a { color: var(--accent2); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ─────────────────────────────────────────────────────────── -->
+<header>
+  <div class="logo">
+    <span class="logo-icon">⚡</span> regex2cpu
+  </div>
+  <p class="subtitle">Regex &rarr; NFA &rarr; DFA &rarr; Assembly &rarr; CPU Simulation</p>
+  <div class="pipeline-strip">
+    <span class="badge badge-flat">FLAT &mdash; Automata Theory</span>
+    <span class="badge badge-daa">DAA &mdash; Graph Algorithms</span>
+    <span class="badge badge-coa">COA &mdash; Instruction Cycle</span>
+  </div>
+</header>
+
+<!-- ── Main ───────────────────────────────────────────────────────────── -->
+<main>
+
+  <!-- ── Left: Input panel ──────────────────────────────────────────── -->
+  <aside>
+    <div class="card">
+      <div class="card-header">
+        <span>🔧</span> Pipeline Input
+      </div>
+      <div class="card-body">
+
+        <div class="field">
+          <label for="inp-regex">Regular Expression</label>
+          <input type="text" id="inp-regex" placeholder="(a|b)*abb" value="(a|b)*abb" />
+        </div>
+
+        <div class="field">
+          <label for="inp-string">Input String</label>
+          <input type="text" id="inp-string" placeholder="babb" value="babb" />
+        </div>
+
+        <div class="toggles">
+          <div class="toggle-row">
+            <span class="toggle-label"><span class="icon">📋</span> Show Assembly</span>
+            <label class="switch">
+              <input type="checkbox" id="tog-asm" checked />
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="toggle-row">
+            <span class="toggle-label"><span class="icon">🔄</span> CPU Trace</span>
+            <label class="switch">
+              <input type="checkbox" id="tog-trace" />
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="toggle-row">
+            <span class="toggle-label"><span class="icon">🕸️</span> DFA Graph (.dot)</span>
+            <label class="switch">
+              <input type="checkbox" id="tog-dot" />
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <button id="btn-run" onclick="runPipeline()">&#9654; Run Pipeline</button>
+
+        <!-- Quick examples -->
+        <div class="examples">
+          <div class="examples-title">Quick Examples</div>
+          <div class="example-chips">
+            <span class="chip" onclick="setExample('(a|b)*abb','babb')">(a|b)*abb</span>
+            <span class="chip" onclick="setExample('a*b','aaab')">a*b</span>
+            <span class="chip" onclick="setExample('(ab)*','abab')">(ab)*</span>
+            <span class="chip" onclick="setExample('a|b|c','c')">a|b|c</span>
+            <span class="chip" onclick="setExample('ab*c','abbbc')">ab*c</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Course map card -->
+    <div class="card" style="margin-top:1rem">
+      <div class="card-header"><span>📚</span> Module → Course</div>
+      <div class="card-body" style="font-size:.82rem; line-height:1.9">
+        <table style="width:100%; border-collapse:collapse">
+          <tr><td style="color:var(--text-muted); width:40%">regex_parser</td><td style="color:#a78bfa">FLAT — Shunting-yard</td></tr>
+          <tr><td style="color:var(--text-muted)">nfa</td><td style="color:#a78bfa">FLAT — Thompson's</td></tr>
+          <tr><td style="color:var(--text-muted)">dfa</td><td style="color:#a78bfa">FLAT — Subset + Hopcroft</td></tr>
+          <tr><td style="color:var(--text-muted)">graph_tools</td><td style="color:#67e8f9">DAA — BFS O(V+E)</td></tr>
+          <tr><td style="color:var(--text-muted)">isa</td><td style="color:#6ee7b7">COA — 16-bit ISA</td></tr>
+          <tr><td style="color:var(--text-muted)">compiler</td><td style="color:#6ee7b7">COA — Code generation</td></tr>
+          <tr><td style="color:var(--text-muted)">cpu</td><td style="color:#6ee7b7">COA — Fetch-Decode-Execute</td></tr>
+        </table>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── Right: Output panel ────────────────────────────────────────── -->
+  <section id="output-panel">
+    <div id="placeholder">
+      <div class="placeholder-icon">⚙️</div>
+      <p>Enter a regex and input string, then click <strong>Run Pipeline</strong>.</p>
+    </div>
+  </section>
+
+</main>
+
+<!-- ── Footer ─────────────────────────────────────────────────────────── -->
+<footer>
+  Built with Python 3 &mdash; standard library only &mdash;
+  <a href="https://github.com/Sidh-006/Microproject-daa-flat-coa" target="_blank" rel="noopener">View on GitHub</a>
+</footer>
+
+<script>
+  /* ── Helpers ─────────────────────────────────────────────────────────── */
+  function setExample(regex, str) {
+    document.getElementById('inp-regex').value = regex;
+    document.getElementById('inp-string').value = str;
+  }
+
+  function section(title, icon, bodyHtml, collapsed = false) {
+    const id = 'sec-' + Math.random().toString(36).slice(2);
+    return `
+      <div class="card">
+        <div class="card-header section-toggle ${collapsed ? 'collapsed' : ''}" onclick="toggleSection(this,'${id}')">
+          <span class="chevron">&#9660;</span>
+          <span>${icon}</span> ${title}
+        </div>
+        <div class="card-body section-body ${collapsed ? 'hidden' : ''}" id="${id}">
+          ${bodyHtml}
+        </div>
+      </div>`;
+  }
+
+  function toggleSection(hdr, id) {
+    hdr.classList.toggle('collapsed');
+    document.getElementById(id).classList.toggle('hidden');
+  }
+
+  /* ── Assembly syntax highlight ───────────────────────────────────────── */
+  function highlightAsm(lines) {
+    return lines.map(line => {
+      if (line.trimStart().startsWith(';'))
+        return `<span class="asm-comment">${esc(line)}</span>`;
+      let s = esc(line);
+      s = s.replace(/^(\s*)([A-Z0-9_]+)(:{1})/gm,
+        (_, sp, lbl, colon) => `${sp}<span class="asm-label">${lbl}${colon}</span>`);
+      s = s.replace(/\b(LOAD|CMP|JEQ|JMP|ACCEPT|REJECT)\b/g,
+        m => `<span class="asm-op">${m}</span>`);
+      s = s.replace(/\b(R[0-3])\b/g,
+        m => `<span class="asm-reg">${m}</span>`);
+      s = s.replace(/&#39;.&#39;/g,
+        m => `<span class="asm-lit">${m}</span>`);
+      s = s.replace(/(;.*)$/m,
+        m => `<span class="asm-comment">${m}</span>`);
+      return s;
+    }).join('\n');
+  }
+
+  function esc(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+            .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+
+  /* ── Trace highlight ─────────────────────────────────────────────────── */
+  function highlightTrace(lines) {
+    return lines.map(line => {
+      const e = esc(line);
+      if (e.includes('ACCEPT')) return `<span class="trace-accept">${e}</span>`;
+      if (e.includes('REJECT')) return `<span class="trace-reject">${e}</span>`;
+      return e;
+    }).join('\n');
+  }
+
+  /* ── Main pipeline call ──────────────────────────────────────────────── */
+  async function runPipeline() {
+    const regex    = document.getElementById('inp-regex').value.trim();
+    const inputStr = document.getElementById('inp-string').value;
+    const showAsm  = document.getElementById('tog-asm').checked;
+    const showTrace= document.getElementById('tog-trace').checked;
+    const showDot  = document.getElementById('tog-dot').checked;
+
+    if (!regex) { alert('Please enter a regular expression.'); return; }
+
+    const btn = document.getElementById('btn-run');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Running…';
+
+    const panel = document.getElementById('output-panel');
+    panel.innerHTML = '';
+
+    try {
+      const res = await fetch('/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ regex, input_string: inputStr, show_asm: showAsm,
+                               show_trace: showTrace, show_dot: showDot })
+      });
+      const data = await res.json();
+
+      if (!data.ok) {
+        panel.innerHTML = `<div class="error-box">&#9888;  ${esc(data.error)}</div>`;
+        return;
+      }
+
+      renderOutput(panel, data);
+
+    } catch (e) {
+      panel.innerHTML = `<div class="error-box">Network error: ${esc(String(e))}</div>`;
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '&#9654; Run Pipeline';
+    }
+  }
+
+  function renderOutput(panel, d) {
+    const parts = [];
+
+    /* ── 1. Result (always first, most important) ── */
+    const accepted = d.result === 'ACCEPT';
+    const resBadge = `<span class="result-badge ${accepted ? 'result-accept' : 'result-reject'}">
+        ${accepted ? '✅' : '❌'} ${d.result}
+      </span>`;
+    parts.push(section('Final Result', '🏁',
+      `<div style="display:flex;align-items:center;gap:1.5rem;flex-wrap:wrap">
+        ${resBadge}
+        <span style="color:var(--text-muted);font-size:.88rem">Cycles executed: <strong style="color:var(--text)">${d.cycles}</strong></span>
+        <span style="color:var(--text-muted);font-size:.88rem">Input: <code style="color:var(--accent2)">${esc('"' + (document.getElementById('inp-string').value) + '"')}</code></span>
+      </div>`));
+
+    /* ── 2. Automata summary ── */
+    parts.push(section('Automata Summary', '🤖',
+      `<div style="margin-bottom:1rem">
+        <span style="font-size:.82rem;color:var(--text-muted)">Postfix: </span>
+        <code style="font-family:'JetBrains Mono',monospace;font-size:.85rem;color:#f59e0b">${esc(d.postfix)}</code>
+        &nbsp; &nbsp;
+        <span style="font-size:.82rem;color:var(--text-muted)">Alphabet: </span>
+        <code style="font-family:'JetBrains Mono',monospace;font-size:.85rem;color:var(--accent2)">{${esc(d.alphabet)}}</code>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-box"><div class="stat-value">${d.nfa_states}</div><div class="stat-label">NFA States</div></div>
+        <div class="stat-box"><div class="stat-value">${d.dfa_states}</div><div class="stat-label">DFA States</div></div>
+        <div class="stat-box"><div class="stat-value">${d.cycles}</div><div class="stat-label">CPU Cycles</div></div>
+      </div>`));
+
+    /* ── 3. Graph analysis ── */
+    const shortStr = d.shortest !== null && d.shortest !== undefined
+      ? `<code style="font-family:'JetBrains Mono',monospace;color:var(--green)">"${esc(d.shortest)}"</code>`
+      : '<span style="color:var(--text-muted)">None (empty language)</span>';
+    const removedStr = d.removed && d.removed.length
+      ? `<span style="color:var(--yellow)">${esc(d.removed.join(', '))}</span>`
+      : '<span style="color:var(--green)">None — all states reachable</span>';
+    parts.push(section('Graph Analysis (BFS)', '🕸️',
+      `<div style="display:grid;gap:.6rem;font-size:.88rem">
+        <div><span style="color:var(--text-muted)">Unreachable states removed: </span>${removedStr}</div>
+        <div><span style="color:var(--text-muted)">Shortest accepted string: </span>${shortStr}</div>
+        <div style="color:var(--text-muted);font-size:.78rem;margin-top:.25rem">Time complexity: O(V + E)</div>
+      </div>`));
+
+    /* ── 4. Assembly (optional) ── */
+    if (d.asm_lines) {
+      const highlighted = highlightAsm(d.asm_lines);
+      const wordsHtml = d.machine_words
+        ? d.machine_words.map((w,i) => `<span style="color:var(--text-muted)">[${String(i).padStart(3,'0')}]</span> <span style="color:#a78bfa">${w}</span>`).join('  ')
+        : '';
+      parts.push(section('Generated Assembly', '📋',
+        `<pre><code>${highlighted}</code></pre>
+         ${wordsHtml ? `<div style="margin-top:.75rem;font-size:.78rem;line-height:1.9">
+           <span style="color:var(--text-muted)">Machine words (${d.machine_words.length} × 16-bit):</span><br>
+           <span style="font-family:'JetBrains Mono',monospace">${wordsHtml}</span></div>` : ''}`, true));
+    }
+
+    /* ── 5. CPU trace (optional) ── */
+    if (d.trace && d.trace.length) {
+      parts.push(section('CPU Execution Trace', '🔄',
+        `<pre><code>${highlightTrace(d.trace)}</code></pre>`, true));
+    }
+
+    /* ── 6. DFA .dot (optional) ── */
+    if (d.dot) {
+      parts.push(section('DFA Graph (.dot source)', '🕸️',
+        `<div class="dot-wrap">
+          <button class="copy-btn" onclick="copyDot()">Copy</button>
+          <pre id="dot-src"><code>${esc(d.dot)}</code></pre>
+        </div>
+        <p style="font-size:.78rem;color:var(--text-muted);margin-top:.6rem">
+          Paste into <a href="https://dreampuf.github.io/GraphvizOnline/" target="_blank" rel="noopener" style="color:var(--accent2)">GraphvizOnline</a> to visualise.
+        </p>`, true));
+    }
+
+    panel.innerHTML = parts.join('');
+  }
+
+  function copyDot() {
+    const src = document.getElementById('dot-src').innerText;
+    navigator.clipboard.writeText(src).then(() => {
+      const btn = document.querySelector('.copy-btn');
+      btn.textContent = 'Copied!';
+      setTimeout(() => btn.textContent = 'Copy', 1800);
+    });
+  }
+
+  /* Enter key triggers run */
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) runPipeline();
+  });
+</script>
+</body>
+</html>
